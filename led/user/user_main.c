@@ -233,8 +233,8 @@ user_init(void)
     wifi_station_set_config(&stationConf);
     wifi_station_connect();
     os_printf("conn...\n");
-    os_printf("conn...\n");
-    os_printf("conn...\n");
+  
+    
     MQTT_InitConnection(&mqttClient, MQTT_HOST, MQTT_PORT, 0);
     MQTT_InitClient(&mqttClient, MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS, 60, 0);
     MQTT_OnConnected(&mqttClient, mqttConnectedCb);
