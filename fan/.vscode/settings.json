@@ -3,6 +3,8 @@
         "vo_rtx.h": "c",
         "gpio16.h": "c",
         "vo_rtx_master.h": "c",
-        "http_client.h": "c"
+        "http_client.h": "c",
+        "user_local_storage.h": "c",
+        "mqtt.h": "c"
     }
 }

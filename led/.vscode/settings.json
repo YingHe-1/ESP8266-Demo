@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "queue.h": "c",
+        "mqtt.h": "c",
+        "ringbuf.h": "c",
+        "eagle_soc.h": "c",
+        "gpio.h": "c"
+    }
+}

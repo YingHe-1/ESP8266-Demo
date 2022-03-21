@@ -27,6 +27,7 @@
 #include "user_interface.h"
 #include "gpio.h"
 #include "eagle_soc.h"
+#include "mqtt.h"
 
 #if ((SPI_FLASH_SIZE_MAP == 0) || (SPI_FLASH_SIZE_MAP == 1))
 #error "The flash map is not supported"
@@ -114,6 +115,49 @@ static uint8_t blue_light[4] = {0x12, 0x49, 0x12, 0x49};
 static uint8_t green_light[4] = {0x24, 0x92, 0x24, 0x92};
 static uint8_t red_light[4] = {0x49, 0x24, 0x49, 0x24};
 
+MQTT_Client mqttClient;
+
+static void ICACHE_FLASH_ATTR mqttConnectedCb(uint32_t *args)
+{
+  MQTT_Client* client = (MQTT_Client*)args;
+  INFO("MQTT: Connected\r\n");
+  MQTT_Subscribe(client, "/mqtt/topic/0", 0);
+  MQTT_Subscribe(client, "/mqtt/topic/1", 1);
+  MQTT_Subscribe(client, "/mqtt/topic/2", 2);
+
+  MQTT_Publish(client, "/mqtt/topic/0", "hello0", 6, 0, 0);
+  MQTT_Publish(client, "/mqtt/topic/1", "hello1", 6, 1, 0);
+  MQTT_Publish(client, "/mqtt/topic/2", "hello2", 6, 2, 0);
+
+}
+
+static void ICACHE_FLASH_ATTR mqttDisconnectedCb(uint32_t *args)
+{
+  MQTT_Client* client = (MQTT_Client*)args;
+  INFO("MQTT: Disconnected\r\n");
+}
+
+static void ICACHE_FLASH_ATTR mqttPublishedCb(uint32_t *args)
+{
+  MQTT_Client* client = (MQTT_Client*)args;
+  INFO("MQTT: Published\r\n");
+}
+
+static void ICACHE_FLASH_ATTR mqttDataCb(uint32_t *args, const char* topic, uint32_t topic_len, const char *data, uint32_t data_len)
+{
+  char *topicBuf = (char*)os_zalloc(topic_len + 1),
+        *dataBuf = (char*)os_zalloc(data_len + 1);
+
+  MQTT_Client* client = (MQTT_Client*)args;
+  os_memcpy(topicBuf, topic, topic_len);
+  topicBuf[topic_len] = 0;
+  os_memcpy(dataBuf, data, data_len);
+  dataBuf[data_len] = 0;
+  INFO("Receive topic: %s, data: %s \r\n", topicBuf, dataBuf);
+  os_free(topicBuf);
+  os_free(dataBuf);
+}
+
 void _74hc595_init()
 {
     PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTMS_U, FUNC_GPIO14);
@@ -181,9 +225,23 @@ void ICACHE_FLASH_ATTR
 user_init(void)
 {
     _74hc595_init();
-    //HC595_Send_Multi_Byte(blue_light,_74HC595_LEVEL);
+    os_printf("startWiFi...\n");
+    struct station_config stationConf;
+    wifi_set_opmode(STATION_MODE);
+    os_memcpy(&stationConf.ssid, ssid, 32);
+    os_memcpy(&stationConf.password, password, 32);
+    wifi_station_set_config(&stationConf);
+    wifi_station_connect();
+    os_printf("conn...\n");
+    MQTT_InitConnection(&mqttClient, MQTT_HOST, MQTT_PORT, 0);
+    MQTT_InitClient(&mqttClient, MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS, 60, 0);
+    MQTT_OnConnected(&mqttClient, mqttConnectedCb);
+    MQTT_OnDisconnected(&mqttClient, mqttDisconnectedCb);
+    MQTT_OnPublished(&mqttClient, mqttPublishedCb);
+    MQTT_OnData(&mqttClient, mqttDataCb);
     os_printf("START LED\n");
-    while(1){
+    while (1)
+    {
         RGB();
     }
 }
