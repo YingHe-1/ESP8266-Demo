@@ -27,6 +27,7 @@
 #include "user_interface.h"
 #include "gpio.h"
 #include "eagle_soc.h"
+#include "mem.h"
 #include "mqtt.h"
 
 #if ((SPI_FLASH_SIZE_MAP == 0) || (SPI_FLASH_SIZE_MAP == 1))
@@ -115,6 +116,9 @@ static uint8_t blue_light[4] = {0x12, 0x49, 0x12, 0x49};
 static uint8_t green_light[4] = {0x24, 0x92, 0x24, 0x92};
 static uint8_t red_light[4] = {0x49, 0x24, 0x49, 0x24};
 
+static uint8 ssid[32]="YinghedeiPhone";
+static uint8 password[64]="f8vm5uxrwncpx";
+
 MQTT_Client mqttClient;
 
 static void ICACHE_FLASH_ATTR mqttConnectedCb(uint32_t *args)
@@ -153,7 +157,7 @@ static void ICACHE_FLASH_ATTR mqttDataCb(uint32_t *args, const char* topic, uint
   topicBuf[topic_len] = 0;
   os_memcpy(dataBuf, data, data_len);
   dataBuf[data_len] = 0;
-  INFO("Receive topic: %s, data: %s \r\n", topicBuf, dataBuf);
+  os_printf("Receive topic: %s, data: %s \r\n", topicBuf, dataBuf);
   os_free(topicBuf);
   os_free(dataBuf);
 }
@@ -229,7 +233,7 @@ user_init(void)
     struct station_config stationConf;
     wifi_set_opmode(STATION_MODE);
     os_memcpy(&stationConf.ssid, ssid, 32);
-    os_memcpy(&stationConf.password, password, 32);
+    os_memcpy(&stationConf.password, password, 64);
     wifi_station_set_config(&stationConf);
     wifi_station_connect();
     os_printf("conn...\n");
@@ -239,9 +243,9 @@ user_init(void)
     MQTT_OnDisconnected(&mqttClient, mqttDisconnectedCb);
     MQTT_OnPublished(&mqttClient, mqttPublishedCb);
     MQTT_OnData(&mqttClient, mqttDataCb);
-    os_printf("START LED\n");
-    while (1)
-    {
-        RGB();
-    }
+    // os_printf("START LED\n");
+    // while (1)
+    // {
+    //     RGB();
+    // }
 }

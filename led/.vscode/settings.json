@@ -4,6 +4,9 @@
         "mqtt.h": "c",
         "ringbuf.h": "c",
         "eagle_soc.h": "c",
-        "gpio.h": "c"
+        "gpio.h": "c",
+        "user_interface.h": "c",
+        "os_type.h": "c",
+        "espconn.h": "c"
     }
 }
