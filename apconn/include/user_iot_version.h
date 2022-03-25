@@ -22,67 +22,46 @@
  *
  */
 
-#ifndef __USER_CONFIG_H__
-#define __USER_CONFIG_H__
+#ifndef __USER_IOT_VERSION_H__
+#define __USER_IOT_VERSION_H__
 
-#define ESP_PLATFORM        1
-#define LEWEI_PLATFORM      0
+#include "user_config.h"
 
-#define USE_OPTIMIZE_PRINTF
+#define IOT_VERSION_MAJOR		1U
+#define IOT_VERSION_MINOR		0U
+#define IOT_VERSION_REVISION	5U
 
-#if ESP_PLATFORM
-#define PLUG_DEVICE             0
-#define LIGHT_DEVICE            1
-#define SENSOR_DEVICE			0
+#define VERSION_NUM   (IOT_VERSION_MAJOR * 1000 + IOT_VERSION_MINOR * 100 + IOT_VERSION_REVISION)
 
-#if SENSOR_DEVICE
-#define HUMITURE_SUB_DEVICE         1
-#define FLAMMABLE_GAS_SUB_DEVICE    0
-#endif
-
-//#define SERVER_SSL_ENABLE
-//#define CLIENT_SSL_ENABLE
-//#define UPGRADE_SSL_ENABLE
-
-#define USE_DNS
-
-#ifdef USE_DNS
-#define ESP_DOMAIN      "iot.espressif.cn"
-#endif
-
-//#define SOFTAP_ENCRYPT
-
-#ifdef SOFTAP_ENCRYPT
-#define PASSWORD	"v*%W>L<@i&Nxe!"
-#endif
-
-#if SENSOR_DEVICE
-#define SENSOR_DEEP_SLEEP
-
-#if HUMITURE_SUB_DEVICE
-#define SENSOR_DEEP_SLEEP_TIME    30000000
-#elif FLAMMABLE_GAS_SUB_DEVICE
-#define SENSOR_DEEP_SLEEP_TIME    60000000
-#endif
-#endif
+//#define VERSION_TYPE      "b"
+#define VERSION_TYPE   	  "v"
 
 #if LIGHT_DEVICE
-#define USE_US_TIMER
+#define device_type       45772
+#elif PLUG_DEVICE
+#define device_type       23701
+#elif SENSOR_DEVICE
+#define device_type       12335
 #endif
 
-#if PLUG_DEVICE || LIGHT_DEVICE
-#define BEACON_TIMEOUT  150000000
-#define BEACON_TIME     50000
+
+#define ONLINE_UPGRADE    0
+#define LOCAL_UPGRADE     0
+#define ALL_UPGRADE       1
+#define NONE_UPGRADE      0
+
+#if	ONLINE_UPGRADE
+#define UPGRADE_FALG	"O"
+#elif  LOCAL_UPGRADE
+#define UPGRADE_FALG	"l"
+#elif  ALL_UPGRADE
+#define UPGRADE_FALG	"a"
+#elif NONE_UPGRADE
+#define UPGRADE_FALG	"n"
 #endif
 
-#define AP_CACHE           1
+#define IOT_VERSION
 
-#if AP_CACHE
-#define AP_CACHE_NUMBER    5
-#endif
-
-#elif LEWEI_PLATFORM
-#endif
 
 #endif
 

@@ -101,6 +101,7 @@ void ICACHE_FLASH_ATTR user_pre_init(void)
 const char ssid[32];
 const char password[32];
 static struct espconn webserver_espconn;
+static void webconfig_get_wifi_ssid_pwd(char *urlparam);
 
 LOCAL void ICACHE_FLASH_ATTR
 parse_url(char *precv, URL_Frame *purl_frame)
@@ -110,13 +111,15 @@ parse_url(char *precv, URL_Frame *purl_frame)
     char *pbuffer = NULL;
     char *pbufer = NULL;
 
-    if (purl_frame == NULL || precv == NULL) {
+    if (purl_frame == NULL || precv == NULL)
+    {
         return;
     }
 
     pbuffer = (char *)os_strstr(precv, "Host:");
 
-    if (pbuffer != NULL) {
+    if (pbuffer != NULL)
+    {
         length = pbuffer - precv;
         pbufer = (char *)os_zalloc(length + 1);
         pbuffer = pbufer;
@@ -125,36 +128,45 @@ parse_url(char *precv, URL_Frame *purl_frame)
         os_memset(purl_frame->pCommand, 0, URLSize);
         os_memset(purl_frame->pFilename, 0, URLSize);
 
-        if (os_strncmp(pbuffer, "GET ", 4) == 0) {
+        if (os_strncmp(pbuffer, "GET ", 4) == 0)
+        {
             purl_frame->Type = GET;
             pbuffer += 4;
-        } else if (os_strncmp(pbuffer, "POST ", 5) == 0) {
+        }
+        else if (os_strncmp(pbuffer, "POST ", 5) == 0)
+        {
             purl_frame->Type = POST;
             pbuffer += 5;
         }
 
-        pbuffer ++;
+        pbuffer++;
         str = (char *)os_strstr(pbuffer, "?");
 
-        if (str != NULL) {
+        if (str != NULL)
+        {
             length = str - pbuffer;
             os_memcpy(purl_frame->pSelect, pbuffer, length);
-            str ++;
+            str++;
             pbuffer = (char *)os_strstr(str, "=");
 
-            if (pbuffer != NULL) {
+            if (pbuffer != NULL)
+            {
                 length = pbuffer - str;
                 os_memcpy(purl_frame->pCommand, str, length);
-                pbuffer ++;
+                pbuffer++;
                 str = (char *)os_strstr(pbuffer, "&");
 
-                if (str != NULL) {
+                if (str != NULL)
+                {
                     length = str - pbuffer;
                     os_memcpy(purl_frame->pFilename, pbuffer, length);
-                } else {
+                }
+                else
+                {
                     str = (char *)os_strstr(pbuffer, " HTTP");
 
-                    if (str != NULL) {
+                    if (str != NULL)
+                    {
                         length = str - pbuffer;
                         os_memcpy(purl_frame->pFilename, pbuffer, length);
                     }
@@ -163,8 +175,90 @@ parse_url(char *precv, URL_Frame *purl_frame)
         }
 
         os_free(pbufer);
-    } else {
+    }
+    else
+    {
         return;
+    }
+}
+
+LOCAL char *precvbuffer;
+static uint32 dat_sumlength = 0;
+LOCAL bool ICACHE_FLASH_ATTR
+save_data(char *precv, uint16 length)
+{
+    bool flag = false;
+    char length_buf[10] = {0};
+    char *ptemp = NULL;
+    char *pdata = NULL;
+    uint16 headlength = 0;
+    static uint32 totallength = 0;
+
+    ptemp = (char *)os_strstr(precv, "\r\n\r\n");
+
+    if (ptemp != NULL)
+    {
+        length -= ptemp - precv;
+        length -= 4;
+        totallength += length;
+        headlength = ptemp - precv + 4;
+        pdata = (char *)os_strstr(precv, "Content-Length: ");
+
+        if (pdata != NULL)
+        {
+            pdata += 16;
+            precvbuffer = (char *)os_strstr(pdata, "\r\n");
+
+            if (precvbuffer != NULL)
+            {
+                os_memcpy(length_buf, pdata, precvbuffer - pdata);
+                dat_sumlength = atoi(length_buf);
+            }
+        }
+        else
+        {
+            if (totallength != 0x00)
+            {
+                totallength = 0;
+                dat_sumlength = 0;
+                return false;
+            }
+        }
+        if ((dat_sumlength + headlength) >= 1024)
+        {
+            precvbuffer = (char *)os_zalloc(headlength + 1);
+            os_memcpy(precvbuffer, precv, headlength + 1);
+        }
+        else
+        {
+            precvbuffer = (char *)os_zalloc(dat_sumlength + headlength + 1);
+            os_memcpy(precvbuffer, precv, os_strlen(precv));
+        }
+    }
+    else
+    {
+        if (precvbuffer != NULL)
+        {
+            totallength += length;
+            os_memcpy(precvbuffer + os_strlen(precvbuffer), precv, length);
+        }
+        else
+        {
+            totallength = 0;
+            dat_sumlength = 0;
+            return false;
+        }
+    }
+
+    if (totallength == dat_sumlength)
+    {
+        totallength = 0;
+        dat_sumlength = 0;
+        return true;
+    }
+    else
+    {
+        return false;
     }
 }
 
@@ -177,35 +271,44 @@ data_send(void *arg, bool responseOK, char *psend)
     struct espconn *ptrespconn = arg;
     os_memset(httphead, 0, 256);
 
-    if (responseOK) {
+    if (responseOK)
+    {
         os_sprintf(httphead,
                    "HTTP/1.0 200 OK\r\nContent-Length: %d\r\nServer: lwIP/1.4.0\r\n",
                    psend ? os_strlen(psend) : 0);
 
-        if (psend) {
+        if (psend)
+        {
             os_sprintf(httphead + os_strlen(httphead),
-                       "Content-type: application/json\r\nExpires: Fri, 10 Apr 2008 14:00:00 GMT\r\nPragma: no-cache\r\n\r\n");
+                       "Content-type: Content-Type\r\nExpires: Fri, 10 Apr 2008 14:00:00 GMT\r\nPragma: no-cache\r\n\r\n");
             length = os_strlen(httphead) + os_strlen(psend);
             pbuf = (char *)os_zalloc(length + 1);
             os_memcpy(pbuf, httphead, os_strlen(httphead));
             os_memcpy(pbuf + os_strlen(httphead), psend, os_strlen(psend));
-        } else {
+        }
+        else
+        {
             os_sprintf(httphead + os_strlen(httphead), "\n");
             length = os_strlen(httphead);
         }
-    } else {
+    }
+    else
+    {
         os_sprintf(httphead, "HTTP/1.0 400 BadRequest\r\n\
 Content-Length: 0\r\nServer: lwIP/1.4.0\r\n\n");
         length = os_strlen(httphead);
     }
 
-    if (psend) {
+    if (psend)
+    {
 #ifdef SERVER_SSL_ENABLE
         espconn_secure_sent(ptrespconn, pbuf, length);
 #else
         espconn_sent(ptrespconn, pbuf, length);
 #endif
-    } else {
+    }
+    else
+    {
 #ifdef SERVER_SSL_ENABLE
         espconn_secure_sent(ptrespconn, httphead, length);
 #else
@@ -213,10 +316,19 @@ Content-Length: 0\r\nServer: lwIP/1.4.0\r\n\n");
 #endif
     }
 
-    if (pbuf) {
+    if (pbuf)
+    {
         os_free(pbuf);
         pbuf = NULL;
     }
+}
+
+LOCAL void ICACHE_FLASH_ATTR
+response_send(void *arg, bool responseOK)
+{
+    struct espconn *ptrespconn = arg;
+
+    data_send(ptrespconn, responseOK, NULL);
 }
 
 void ICACHE_FLASH_ATTR
@@ -225,55 +337,66 @@ webserver_recv(void *arg, char *pusrdata, unsigned short length)
     URL_Frame *pURL_Frame = NULL;
     char *pParseBuffer = NULL;
     char *index = NULL;
+    bool parse_flag = false;
+    struct espconn *ptrespconn = arg;
     SpiFlashOpResult ret = 0;
 
     os_printf("len:%u\r\n", length);
     os_printf("Webserver recv:-------------------------------\r\n%s\r\n", pusrdata);
 
+    parse_flag = save_data(pusrdata, length);
+    if (parse_flag == false)
+    {
+        response_send(ptrespconn, false);
+    }
+
     pURL_Frame = (URL_Frame *)os_zalloc(sizeof(URL_Frame));
-    parse_url(pusrdata, pURL_Frame);
+    parse_url(precvbuffer, pURL_Frame);
 
     switch (pURL_Frame->Type)
     {
     case GET:
         os_printf("We have a GET request.\r\n");
 
-        // if (pURL_Frame->pFilename[0] == 0)
-        // {
-        //     index = (char *)os_zalloc(476);
-        //     if (index == NULL)
-        //     {
-        //         os_printf("os_zalloc error!\r\n");
-        //         goto _temp_exit;
-        //     }
+        if (pURL_Frame->pFilename[0] == 0)
+        {
+            index = (char *)os_zalloc(457);
+            if (index == NULL)
+            {
+                os_printf("os_zalloc error!\r\n");
+                goto _temp_exit;
+            }
 
-        //     Flash read/write has to be aligned to the 4-bytes boundary
-        //     ret = spi_flash_read(0xFC * SPI_FLASH_SEC_SIZE, (uint32 *)index, 476); // start address:0x10000 + 0xC0000
-        //     if (ret != SPI_FLASH_RESULT_OK)
-        //     {
-        //         os_printf("spi_flash_read err:%d\r\n", ret);
-        //         os_free(index);
-        //         index = NULL;
-        //         goto _temp_exit;
-        //     }
+            // Flash read/write has to be aligned to the 4-bytes boundary
+            ret = spi_flash_read(500 * 4096, (uint32 *)index, 457);
+            if (ret != SPI_FLASH_RESULT_OK)
+            {
+                os_printf("spi_flash_read err:%d\r\n", ret);
+                os_free(index);
+                index = NULL;
+                goto _temp_exit;
+            }
 
-        //     // index[HTML_FILE_SIZE] = 0;   // put 0 to the end
-        //     data_send(arg, true, index);
+            // index[HTML_FILE_SIZE] = 0;   // put 0 to the end
+            data_send(arg, true, index);
 
-        //     os_free(index);
-        //     index = NULL;
-        // }
-        // break;
+            os_free(index);
+            index = NULL;
+        }
+        break;
 
     case POST:
         os_printf("We have a POST request.\r\n");
 
-        pParseBuffer = (char *)os_strstr(pusrdata, "\r\n\r\n");
-        if (pParseBuffer == NULL)
-        {
+        //pParseBuffer = (char *)os_strstr(pusrdata, "\r\n\r\n");
+        //os_printf("pParseBuffer%s\r\n",pParseBuffer);
+        //if (pParseBuffer == NULL)
+        //{
+            webconfig_get_wifi_ssid_pwd(pusrdata);
+            os_printf("We have a connect\r\n");
             data_send(arg, false, NULL);
             break;
-        }
+        //}
         // Prase the POST data ...
         break;
     }
@@ -284,6 +407,38 @@ _temp_exit:;
         os_free(pURL_Frame);
         pURL_Frame = NULL;
     }
+}
+
+static void ICACHE_FLASH_ATTR
+webconfig_get_wifi_ssid_pwd(char *urlparam)
+{
+    char *p = NULL, *q = NULL;
+
+    os_memset(ssid, 0, sizeof(ssid));
+
+    p = (char *)os_strstr(urlparam, "ssid=");
+    q = (char *)os_strstr(urlparam, "password=");
+    os_printf("ssid:%s\r\n",p);
+    os_printf("password:%s\r\n",q);
+    if (p == NULL || q == NULL)
+    {
+        return;
+    }
+    os_memcpy(ssid, p + 5, q - p - 6);
+    os_memcpy(password, q + 9, os_strlen(urlparam) - (q - urlparam) - 9);
+    os_printf("ssid[%s]password[%s]\r\n", ssid, password);
+
+    wifi_set_opmode(STATION_MODE);
+    struct station_config stConf;
+    stConf.bssid_set = 0;
+    os_memset(&stConf.ssid, 0, sizeof(stConf.ssid));
+    os_memset(&stConf.password, 0, sizeof(stConf.password));
+
+    os_memcpy(&stConf.ssid, ssid, os_strlen(ssid));
+    os_memcpy(&stConf.password, password, os_strlen(password));
+    wifi_station_set_config(&stConf);
+    //重启
+    system_restart();
 }
 
 void ICACHE_FLASH_ATTR
@@ -302,8 +457,8 @@ webserver_discon(void *arg, sint8 err)
     struct espconn *pesp_conn = arg;
 
     os_printf("webserver's %d.%d.%d.%d:%d disconnect\n", pesp_conn->proto.tcp->remote_ip[0],
-        		pesp_conn->proto.tcp->remote_ip[1],pesp_conn->proto.tcp->remote_ip[2],
-        		pesp_conn->proto.tcp->remote_ip[3],pesp_conn->proto.tcp->remote_port);
+              pesp_conn->proto.tcp->remote_ip[1], pesp_conn->proto.tcp->remote_ip[2],
+              pesp_conn->proto.tcp->remote_ip[3], pesp_conn->proto.tcp->remote_port);
 }
 
 LOCAL void ICACHE_FLASH_ATTR
@@ -314,21 +469,21 @@ webserver_listen(void *arg)
     espconn_regist_recvcb(pesp_conn, webserver_recv);
     espconn_regist_reconcb(pesp_conn, webserver_recon);
     espconn_regist_disconcb(pesp_conn, webserver_discon);
-    // espconn_regist_sentcb(pesp_conn, webserver_sent);
+    //espconn_regist_sentcb(pesp_conn, webserver_sent);
 }
 
 void ICACHE_FLASH_ATTR
 user_webserver_init(uint32_t Local_port) //链接服务器
 {
     LOCAL struct espconn user_tcp_espconn;
-    user_tcp_espconn.proto.tcp = (esp_tcp *)os_zalloc(sizeof(esp_tcp));
+    LOCAL esp_tcp esptcp;
     user_tcp_espconn.type = ESPCONN_TCP;
+    user_tcp_espconn.state = ESPCONN_NONE;
+    user_tcp_espconn.proto.tcp = &esptcp;
     user_tcp_espconn.proto.tcp->local_port = Local_port;
-    espconn_regist_connectcb(&webserver_espconn, webserver_listen);
-    // espconn_regist_reconcb(&webserver_espconn,webserver_recon);
+    espconn_regist_connectcb(&user_tcp_espconn, webserver_listen);
+    //  espconn_regist_reconcb(&webserver_espconn,webserver_recon);
     espconn_accept(&user_tcp_espconn);
-    //设置超时断开时间 单位：秒，最大值：7200 秒
-    espconn_regist_time(&user_tcp_espconn, 180, 0);
 }
 
 void WIFI_Init()

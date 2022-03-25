@@ -2,6 +2,7 @@
     "files.associations": {
         "cjson.h": "c",
         "espconn.h": "c",
-        "user_webserver.h": "c"
+        "user_webserver.h": "c",
+        "spi_flash.h": "c"
     }
 }
