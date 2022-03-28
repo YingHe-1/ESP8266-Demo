@@ -32,6 +32,8 @@
 #include "cJSON.h"
 #include "user_webserver.h"
 #include "spi_flash.h"
+#include "mqtt.h"
+#include "debug.h"
 
 #if ((SPI_FLASH_SIZE_MAP == 0) || (SPI_FLASH_SIZE_MAP == 1))
 #error "The flash map is not supported"
@@ -101,7 +103,7 @@ void ICACHE_FLASH_ATTR user_pre_init(void)
 const char ssid[32];
 const char password[32];
 static struct espconn webserver_espconn;
-static void webconfig_get_wifi_ssid_pwd(char *urlparam);
+MQTT_Client mqttClient;
 
 LOCAL void ICACHE_FLASH_ATTR
 parse_url(char *precv, URL_Frame *purl_frame)
@@ -331,6 +333,38 @@ response_send(void *arg, bool responseOK)
     data_send(ptrespconn, responseOK, NULL);
 }
 
+static void ICACHE_FLASH_ATTR
+webconfig_get_wifi_ssid_pwd(char *urlparam)
+{
+    char *p = NULL, *q = NULL;
+
+    os_memset(ssid, 0, sizeof(ssid));
+
+    p = (char *)os_strstr(urlparam, "ssid=");
+    q = (char *)os_strstr(urlparam, "password=");
+    os_printf("ssid:%s\r\n", p);
+    os_printf("password:%s\r\n", q);
+    if (p == NULL || q == NULL)
+    {
+        return;
+    }
+    os_memcpy(ssid, p + 5, q - p - 6);
+    os_memcpy(password, q + 9, os_strlen(urlparam) - (q - urlparam) - 9);
+    os_printf("ssid[%s]password[%s]\r\n", ssid, password);
+
+    wifi_set_opmode(STATION_MODE);
+    struct station_config stConf;
+    stConf.bssid_set = 0;
+    os_memset(&stConf.ssid, 0, sizeof(stConf.ssid));
+    os_memset(&stConf.password, 0, sizeof(stConf.password));
+
+    os_memcpy(&stConf.ssid, ssid, os_strlen(ssid));
+    os_memcpy(&stConf.password, password, os_strlen(password));
+    wifi_station_set_config(&stConf);
+    //重启
+    system_restart();
+}
+
 void ICACHE_FLASH_ATTR
 webserver_recv(void *arg, char *pusrdata, unsigned short length)
 {
@@ -388,14 +422,14 @@ webserver_recv(void *arg, char *pusrdata, unsigned short length)
     case POST:
         os_printf("We have a POST request.\r\n");
 
-        //pParseBuffer = (char *)os_strstr(pusrdata, "\r\n\r\n");
-        //os_printf("pParseBuffer%s\r\n",pParseBuffer);
-        //if (pParseBuffer == NULL)
+        // pParseBuffer = (char *)os_strstr(pusrdata, "\r\n\r\n");
+        // os_printf("pParseBuffer%s\r\n",pParseBuffer);
+        // if (pParseBuffer == NULL)
         //{
-            webconfig_get_wifi_ssid_pwd(pusrdata);
-            os_printf("We have a connect\r\n");
-            data_send(arg, false, NULL);
-            break;
+        webconfig_get_wifi_ssid_pwd(pusrdata);
+        os_printf("We have a connect\r\n");
+        data_send(arg, false, NULL);
+        break;
         //}
         // Prase the POST data ...
         break;
@@ -407,38 +441,6 @@ _temp_exit:;
         os_free(pURL_Frame);
         pURL_Frame = NULL;
     }
-}
-
-static void ICACHE_FLASH_ATTR
-webconfig_get_wifi_ssid_pwd(char *urlparam)
-{
-    char *p = NULL, *q = NULL;
-
-    os_memset(ssid, 0, sizeof(ssid));
-
-    p = (char *)os_strstr(urlparam, "ssid=");
-    q = (char *)os_strstr(urlparam, "password=");
-    os_printf("ssid:%s\r\n",p);
-    os_printf("password:%s\r\n",q);
-    if (p == NULL || q == NULL)
-    {
-        return;
-    }
-    os_memcpy(ssid, p + 5, q - p - 6);
-    os_memcpy(password, q + 9, os_strlen(urlparam) - (q - urlparam) - 9);
-    os_printf("ssid[%s]password[%s]\r\n", ssid, password);
-
-    wifi_set_opmode(STATION_MODE);
-    struct station_config stConf;
-    stConf.bssid_set = 0;
-    os_memset(&stConf.ssid, 0, sizeof(stConf.ssid));
-    os_memset(&stConf.password, 0, sizeof(stConf.password));
-
-    os_memcpy(&stConf.ssid, ssid, os_strlen(ssid));
-    os_memcpy(&stConf.password, password, os_strlen(password));
-    wifi_station_set_config(&stConf);
-    //重启
-    system_restart();
 }
 
 void ICACHE_FLASH_ATTR
@@ -469,11 +471,11 @@ webserver_listen(void *arg)
     espconn_regist_recvcb(pesp_conn, webserver_recv);
     espconn_regist_reconcb(pesp_conn, webserver_recon);
     espconn_regist_disconcb(pesp_conn, webserver_discon);
-    //espconn_regist_sentcb(pesp_conn, webserver_sent);
+    // espconn_regist_sentcb(pesp_conn, webserver_sent);
 }
 
 void ICACHE_FLASH_ATTR
-user_webserver_init(uint32_t Local_port) //链接服务器
+user_webserver_init(uint32_t Local_port)
 {
     LOCAL struct espconn user_tcp_espconn;
     LOCAL esp_tcp esptcp;
@@ -499,20 +501,68 @@ void WIFI_Init()
     apConfig.max_connection = 4;
     apConfig.ssid_hidden = 0;
     wifi_softap_set_config_current(&apConfig);
-}
-
-void ICACHE_FLASH_ATTR
-user_init(void)
-{
-    os_printf("start...\n");
     // struct station_config stationConf;
     // wifi_set_opmode(STATION_MODE);
     // os_memcpy(&stationConf.ssid, ssid, 32);
     // os_memcpy(&stationConf.password, password, 32);
     // wifi_station_set_config(&stationConf);
     // wifi_station_connect();
+}
+
+static void ICACHE_FLASH_ATTR mqttConnectedCb(uint32_t *args)
+{
+  MQTT_Client* client = (MQTT_Client*)args;
+  INFO("MQTT: Connected\r\n");
+  MQTT_Subscribe(client, "/mqtt/topic/0", 0);
+  MQTT_Subscribe(client, "/mqtt/topic/1", 1);
+  MQTT_Subscribe(client, "/mqtt/topic/2", 2);
+
+  MQTT_Publish(client, "/mqtt/topic/0", "hello0", 6, 0, 0);
+  MQTT_Publish(client, "/mqtt/topic/1", "hello1", 6, 1, 0);
+  MQTT_Publish(client, "/mqtt/topic/2", "hello2", 6, 2, 0);
+
+}
+
+static void ICACHE_FLASH_ATTR mqttDisconnectedCb(uint32_t *args)
+{
+  MQTT_Client* client = (MQTT_Client*)args;
+  INFO("MQTT: Disconnected\r\n");
+}
+
+static void ICACHE_FLASH_ATTR mqttPublishedCb(uint32_t *args)
+{
+  MQTT_Client* client = (MQTT_Client*)args;
+  INFO("MQTT: Published\r\n");
+}
+
+static void ICACHE_FLASH_ATTR mqttDataCb(uint32_t *args, const char* topic, uint32_t topic_len, const char *data, uint32_t data_len)
+{
+  char *topicBuf = (char*)os_zalloc(topic_len + 1),
+        *dataBuf = (char*)os_zalloc(data_len + 1);
+
+  MQTT_Client* client = (MQTT_Client*)args;
+  os_memcpy(topicBuf, topic, topic_len);
+  topicBuf[topic_len] = 0;
+  os_memcpy(dataBuf, data, data_len);
+  dataBuf[data_len] = 0;
+  os_printf("Receive topic: %s, data: %s \r\n", topicBuf, dataBuf);
+  os_free(topicBuf);
+  os_free(dataBuf);
+}
+
+void ICACHE_FLASH_ATTR
+user_init(void)
+{
+    os_printf("start...\n");
     // AP初始化
     WIFI_Init();
     // TCP初始化
     user_webserver_init(80);
+
+    MQTT_InitConnection(&mqttClient, MQTT_HOST, MQTT_PORT, 0);
+    MQTT_InitClient(&mqttClient, MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS, 60, 0);
+    MQTT_OnConnected(&mqttClient, mqttConnectedCb);
+    MQTT_OnDisconnected(&mqttClient, mqttDisconnectedCb);
+    MQTT_OnPublished(&mqttClient, mqttPublishedCb);
+    MQTT_OnData(&mqttClient, mqttDataCb);
 }

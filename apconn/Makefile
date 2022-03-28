@@ -22,7 +22,8 @@ GEN_IMAGES= eagle.app.v6.out
 GEN_BINS= eagle.app.v6.bin
 SPECIAL_MKTARGETS=$(APP_MKTARGETS)
 SUBDIRS=    \
-	user
+	user	\
+	mqtt
 ifdef AT_OPEN_SRC
 SUBDIRS +=    \
 	at
@@ -53,7 +54,8 @@ ifeq ($(FLAVOR),release)
 endif
 
 COMPONENTS_eagle.app.v6 = \
-	user/libuser.a
+	user/libuser.a	\
+	mqtt/libmqtt.a
 	
 ifdef AT_OPEN_SRC
 COMPONENTS_eagle.app.v6 += \
@@ -151,7 +153,7 @@ DDEFINES +=				\
 # Required for each makefile to inherit from the parent
 #
 
-INCLUDES := $(INCLUDES) -I $(PDIR)include
+INCLUDES := $(INCLUDES) -I $(PDIR)include -I $(PDIR)include/mqtt
 PDIR := ../$(PDIR)
 sinclude $(PDIR)Makefile
 
