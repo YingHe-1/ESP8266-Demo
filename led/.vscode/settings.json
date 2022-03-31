@@ -7,6 +7,7 @@
         "gpio.h": "c",
         "user_interface.h": "c",
         "os_type.h": "c",
-        "espconn.h": "c"
+        "espconn.h": "c",
+        "mem.h": "c"
     }
 }

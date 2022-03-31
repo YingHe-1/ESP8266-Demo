@@ -490,37 +490,40 @@ user_webserver_init(uint32_t Local_port)
 
 void WIFI_Init()
 {
-    struct softap_config apConfig;
-    wifi_set_opmode(STATIONAP_MODE);
-    apConfig.ssid_len = 10;
-    os_strcpy(apConfig.ssid, "ESP8266Wifi");
-    os_strcpy(apConfig.password, "12345678");
-    apConfig.authmode = 3;
-    apConfig.beacon_interval = 100;
-    apConfig.channel = 1;
-    apConfig.max_connection = 4;
-    apConfig.ssid_hidden = 0;
-    wifi_softap_set_config_current(&apConfig);
-    // struct station_config stationConf;
-    // wifi_set_opmode(STATION_MODE);
-    // os_memcpy(&stationConf.ssid, ssid, 32);
-    // os_memcpy(&stationConf.password, password, 32);
-    // wifi_station_set_config(&stationConf);
-    // wifi_station_connect();
+    // struct softap_config apConfig;
+    // wifi_set_opmode(STATIONAP_MODE);
+    // apConfig.ssid_len = 10;
+    // os_strcpy(apConfig.ssid, "ESP8266Wifi");
+    // os_strcpy(apConfig.password, "12345678");
+    // apConfig.authmode = 3;
+    // apConfig.beacon_interval = 100;
+    // apConfig.channel = 1;
+    // apConfig.max_connection = 4;
+    // apConfig.ssid_hidden = 0;
+    // wifi_softap_set_config_current(&apConfig);
+    struct station_config stationConf;
+    wifi_set_opmode(STATION_MODE);
+    os_memcpy(&stationConf.ssid, "YinghedeiPhone", 32);
+    os_memcpy(&stationConf.password, "f8vm5uxrwncpx", 32);
+    wifi_station_set_config(&stationConf);
+    wifi_station_connect();
+}
+
+void mqtt_send_status(void)
+{ 
+	char msg[512];
+	os_bzero(msg, 512);
+	os_sprintf(msg, "%s","hello");
+	MQTT_Publish(&mqttClient, "topic_ctos", msg, os_strlen(msg), 2, 0);
+	os_printf("mqtt_send_status ok!\n");
 }
 
 static void ICACHE_FLASH_ATTR mqttConnectedCb(uint32_t *args)
 {
   MQTT_Client* client = (MQTT_Client*)args;
   INFO("MQTT: Connected\r\n");
-  MQTT_Subscribe(client, "/mqtt/topic/0", 0);
-  MQTT_Subscribe(client, "/mqtt/topic/1", 1);
-  MQTT_Subscribe(client, "/mqtt/topic/2", 2);
-
-  MQTT_Publish(client, "/mqtt/topic/0", "hello0", 6, 0, 0);
-  MQTT_Publish(client, "/mqtt/topic/1", "hello1", 6, 1, 0);
-  MQTT_Publish(client, "/mqtt/topic/2", "hello2", 6, 2, 0);
-
+  MQTT_Subscribe(client, "/gqkg59Oh5RE/test_point_1/user/get", 2);
+  mqtt_send_status();
 }
 
 static void ICACHE_FLASH_ATTR mqttDisconnectedCb(uint32_t *args)
@@ -559,7 +562,7 @@ user_init(void)
     // TCP初始化
     user_webserver_init(80);
 
-    MQTT_InitConnection(&mqttClient, MQTT_HOST, MQTT_PORT, 0);
+    MQTT_InitConnection(&mqttClient, MQTT_HOST, 1883, 0);
     MQTT_InitClient(&mqttClient, MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS, 60, 0);
     MQTT_OnConnected(&mqttClient, mqttConnectedCb);
     MQTT_OnDisconnected(&mqttClient, mqttDisconnectedCb);

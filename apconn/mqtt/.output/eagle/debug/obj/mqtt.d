@@ -13,7 +13,7 @@
  /opt/xtensa-lx106-elf/lib/gcc/xtensa-lx106-elf/4.8.2/include/sys/_types.h \
  /opt/xtensa-lx106-elf/lib/gcc/xtensa-lx106-elf/4.8.2/include/sys/lock.h \
  /opt/xtensa-lx106-elf/lib/gcc/xtensa-lx106-elf/4.8.2/include/stddef.h \
- ../../include/espconn.h ../../include/os_type.h ../../include/mem.h \
+ ../include/espconn.h ../../include/os_type.h ../../include/mem.h \
  include/mqtt_msg.h ../include/mqtt_config.h ../../include/c_types.h \
  include/debug.h include/mqtt.h include/mqtt_msg.h include/queue.h \
  include/ringbuf.h \

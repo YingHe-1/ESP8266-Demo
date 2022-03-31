@@ -15,11 +15,11 @@ typedef enum{
 
 /*DEFAULT CONFIGURATIONS*/
 
-#define MQTT_HOST            "gqkg59Oh5RE.iot-as-mqtt.cn-shanghai.aliyuncs.com" // the IP address or domain name of your MQTT server or MQTT broker ,such as "mqtt.yourdomain.com"
+#define MQTT_HOST            "iot-06z00i0mh5glc8z.mqtt.iothub.aliyuncs.com" // the IP address or domain name of your MQTT server or MQTT broker ,such as "mqtt.yourdomain.com"
 #define MQTT_PORT            1883    // the listening port of your MQTT server or MQTT broker
-#define MQTT_CLIENT_ID        "123456|securemode=3,signmethod=hmacsha1|"    // the ID of yourself, any string is OK,client would use this ID register itself to MQTT server
+#define MQTT_CLIENT_ID        "test1"    // the ID of yourself, any string is OK,client would use this ID register itself to MQTT server
 #define MQTT_USER            "test_point_1&gqkg59Oh5RE" // your MQTT login name, if MQTT server allow anonymous login,any string is OK, otherwise, please input valid login name which you had registered
-#define MQTT_PASS            "7400C3F25B274807F4601D73455F2D46" // you MQTT login password, same as above
+#define MQTT_PASS            "aa698215ae2a0442f4e42d8a17a66fcc3ccc3456c53791922a34e70d11d57018" // you MQTT login password, same as above
 #define STA_SSID "AP_SSID"    // your AP/router SSID to config your device networking
 #define STA_PASS "AP_Passwd" // your AP/router password
 
