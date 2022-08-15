@@ -23,4 +23,11 @@
  /opt/xtensa-lx106-elf/lib/gcc/xtensa-lx106-elf/4.8.2/include/stdlib.h \
  /opt/xtensa-lx106-elf/lib/gcc/xtensa-lx106-elf/4.8.2/include/machine/stdlib.h \
  /opt/xtensa-lx106-elf/lib/gcc/xtensa-lx106-elf/4.8.2/include/alloca.h \
- ../include/mqtt/typedef.h ../include/mqtt/debug.h
+ ../include/mqtt/typedef.h ../include/mqtt/debug.h \
+ ../include/wizchip_conf.h \
+ /opt/xtensa-lx106-elf/lib/gcc/xtensa-lx106-elf/4.8.2/include/stdint.h \
+ ../include/W5500/W5500/w5500.h ../include/driver/spi_interface.h \
+ ../include/driver/spi_register.h ../include/driver/spi.h \
+ ../include/driver/spi_register.h ../include/driver/uart.h \
+ ../include/driver/uart_register.h ../../include/eagle_soc.h \
+ ../include/socket.h ../include/wizchip_conf.h

@@ -34,6 +34,18 @@
 #include "spi_flash.h"
 #include "mqtt.h"
 #include "debug.h"
+#include "wizchip_conf.h"
+#include "driver/spi_interface.h"
+#include "driver/spi.h"
+#include "socket.h"
+#include "W5500/wizchip_conf.h"
+
+#define SOCK_TCPS        1
+#define DATA_BUF_SIZE			2048
+uint8_t gDATABUF[DATA_BUF_SIZE];
+
+uint8_t dest_ip[4] = {10, 1, 1, 144};
+uint16_t dest_port = 	5000;
 
 #if ((SPI_FLASH_SIZE_MAP == 0) || (SPI_FLASH_SIZE_MAP == 1))
 #error "The flash map is not supported"
@@ -105,388 +117,8 @@ const char password[32];
 static struct espconn webserver_espconn;
 MQTT_Client mqttClient;
 
-LOCAL void ICACHE_FLASH_ATTR
-parse_url(char *precv, URL_Frame *purl_frame)
-{
-    char *str = NULL;
-    uint8 length = 0;
-    char *pbuffer = NULL;
-    char *pbufer = NULL;
-
-    if (purl_frame == NULL || precv == NULL)
-    {
-        return;
-    }
-
-    pbuffer = (char *)os_strstr(precv, "Host:");
-
-    if (pbuffer != NULL)
-    {
-        length = pbuffer - precv;
-        pbufer = (char *)os_zalloc(length + 1);
-        pbuffer = pbufer;
-        os_memcpy(pbuffer, precv, length);
-        os_memset(purl_frame->pSelect, 0, URLSize);
-        os_memset(purl_frame->pCommand, 0, URLSize);
-        os_memset(purl_frame->pFilename, 0, URLSize);
-
-        if (os_strncmp(pbuffer, "GET ", 4) == 0)
-        {
-            purl_frame->Type = GET;
-            pbuffer += 4;
-        }
-        else if (os_strncmp(pbuffer, "POST ", 5) == 0)
-        {
-            purl_frame->Type = POST;
-            pbuffer += 5;
-        }
-
-        pbuffer++;
-        str = (char *)os_strstr(pbuffer, "?");
-
-        if (str != NULL)
-        {
-            length = str - pbuffer;
-            os_memcpy(purl_frame->pSelect, pbuffer, length);
-            str++;
-            pbuffer = (char *)os_strstr(str, "=");
-
-            if (pbuffer != NULL)
-            {
-                length = pbuffer - str;
-                os_memcpy(purl_frame->pCommand, str, length);
-                pbuffer++;
-                str = (char *)os_strstr(pbuffer, "&");
-
-                if (str != NULL)
-                {
-                    length = str - pbuffer;
-                    os_memcpy(purl_frame->pFilename, pbuffer, length);
-                }
-                else
-                {
-                    str = (char *)os_strstr(pbuffer, " HTTP");
-
-                    if (str != NULL)
-                    {
-                        length = str - pbuffer;
-                        os_memcpy(purl_frame->pFilename, pbuffer, length);
-                    }
-                }
-            }
-        }
-
-        os_free(pbufer);
-    }
-    else
-    {
-        return;
-    }
-}
-
-LOCAL char *precvbuffer;
-static uint32 dat_sumlength = 0;
-LOCAL bool ICACHE_FLASH_ATTR
-save_data(char *precv, uint16 length)
-{
-    bool flag = false;
-    char length_buf[10] = {0};
-    char *ptemp = NULL;
-    char *pdata = NULL;
-    uint16 headlength = 0;
-    static uint32 totallength = 0;
-
-    ptemp = (char *)os_strstr(precv, "\r\n\r\n");
-
-    if (ptemp != NULL)
-    {
-        length -= ptemp - precv;
-        length -= 4;
-        totallength += length;
-        headlength = ptemp - precv + 4;
-        pdata = (char *)os_strstr(precv, "Content-Length: ");
-
-        if (pdata != NULL)
-        {
-            pdata += 16;
-            precvbuffer = (char *)os_strstr(pdata, "\r\n");
-
-            if (precvbuffer != NULL)
-            {
-                os_memcpy(length_buf, pdata, precvbuffer - pdata);
-                dat_sumlength = atoi(length_buf);
-            }
-        }
-        else
-        {
-            if (totallength != 0x00)
-            {
-                totallength = 0;
-                dat_sumlength = 0;
-                return false;
-            }
-        }
-        if ((dat_sumlength + headlength) >= 1024)
-        {
-            precvbuffer = (char *)os_zalloc(headlength + 1);
-            os_memcpy(precvbuffer, precv, headlength + 1);
-        }
-        else
-        {
-            precvbuffer = (char *)os_zalloc(dat_sumlength + headlength + 1);
-            os_memcpy(precvbuffer, precv, os_strlen(precv));
-        }
-    }
-    else
-    {
-        if (precvbuffer != NULL)
-        {
-            totallength += length;
-            os_memcpy(precvbuffer + os_strlen(precvbuffer), precv, length);
-        }
-        else
-        {
-            totallength = 0;
-            dat_sumlength = 0;
-            return false;
-        }
-    }
-
-    if (totallength == dat_sumlength)
-    {
-        totallength = 0;
-        dat_sumlength = 0;
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
-
-LOCAL void ICACHE_FLASH_ATTR
-data_send(void *arg, bool responseOK, char *psend)
-{
-    uint16 length = 0;
-    char *pbuf = NULL;
-    char httphead[256];
-    struct espconn *ptrespconn = arg;
-    os_memset(httphead, 0, 256);
-
-    if (responseOK)
-    {
-        os_sprintf(httphead,
-                   "HTTP/1.0 200 OK\r\nContent-Length: %d\r\nServer: lwIP/1.4.0\r\n",
-                   psend ? os_strlen(psend) : 0);
-
-        if (psend)
-        {
-            os_sprintf(httphead + os_strlen(httphead),
-                       "Content-type: Content-Type\r\nExpires: Fri, 10 Apr 2008 14:00:00 GMT\r\nPragma: no-cache\r\n\r\n");
-            length = os_strlen(httphead) + os_strlen(psend);
-            pbuf = (char *)os_zalloc(length + 1);
-            os_memcpy(pbuf, httphead, os_strlen(httphead));
-            os_memcpy(pbuf + os_strlen(httphead), psend, os_strlen(psend));
-        }
-        else
-        {
-            os_sprintf(httphead + os_strlen(httphead), "\n");
-            length = os_strlen(httphead);
-        }
-    }
-    else
-    {
-        os_sprintf(httphead, "HTTP/1.0 400 BadRequest\r\n\
-Content-Length: 0\r\nServer: lwIP/1.4.0\r\n\n");
-        length = os_strlen(httphead);
-    }
-
-    if (psend)
-    {
-#ifdef SERVER_SSL_ENABLE
-        espconn_secure_sent(ptrespconn, pbuf, length);
-#else
-        espconn_sent(ptrespconn, pbuf, length);
-#endif
-    }
-    else
-    {
-#ifdef SERVER_SSL_ENABLE
-        espconn_secure_sent(ptrespconn, httphead, length);
-#else
-        espconn_sent(ptrespconn, httphead, length);
-#endif
-    }
-
-    if (pbuf)
-    {
-        os_free(pbuf);
-        pbuf = NULL;
-    }
-}
-
-LOCAL void ICACHE_FLASH_ATTR
-response_send(void *arg, bool responseOK)
-{
-    struct espconn *ptrespconn = arg;
-
-    data_send(ptrespconn, responseOK, NULL);
-}
-
-static void ICACHE_FLASH_ATTR
-webconfig_get_wifi_ssid_pwd(char *urlparam)
-{
-    char *p = NULL, *q = NULL;
-
-    os_memset(ssid, 0, sizeof(ssid));
-
-    p = (char *)os_strstr(urlparam, "ssid=");
-    q = (char *)os_strstr(urlparam, "password=");
-    os_printf("ssid:%s\r\n", p);
-    os_printf("password:%s\r\n", q);
-    if (p == NULL || q == NULL)
-    {
-        return;
-    }
-    os_memcpy(ssid, p + 5, q - p - 6);
-    os_memcpy(password, q + 9, os_strlen(urlparam) - (q - urlparam) - 9);
-    os_printf("ssid[%s]password[%s]\r\n", ssid, password);
-
-    wifi_set_opmode(STATION_MODE);
-    struct station_config stConf;
-    stConf.bssid_set = 0;
-    os_memset(&stConf.ssid, 0, sizeof(stConf.ssid));
-    os_memset(&stConf.password, 0, sizeof(stConf.password));
-
-    os_memcpy(&stConf.ssid, ssid, os_strlen(ssid));
-    os_memcpy(&stConf.password, password, os_strlen(password));
-    wifi_station_set_config(&stConf);
-    //重启
-    system_restart();
-}
-
-void ICACHE_FLASH_ATTR
-webserver_recv(void *arg, char *pusrdata, unsigned short length)
-{
-    URL_Frame *pURL_Frame = NULL;
-    char *pParseBuffer = NULL;
-    char *index = NULL;
-    bool parse_flag = false;
-    struct espconn *ptrespconn = arg;
-    SpiFlashOpResult ret = 0;
-
-    os_printf("len:%u\r\n", length);
-    os_printf("Webserver recv:-------------------------------\r\n%s\r\n", pusrdata);
-
-    parse_flag = save_data(pusrdata, length);
-    if (parse_flag == false)
-    {
-        response_send(ptrespconn, false);
-    }
-
-    pURL_Frame = (URL_Frame *)os_zalloc(sizeof(URL_Frame));
-    parse_url(precvbuffer, pURL_Frame);
-
-    switch (pURL_Frame->Type)
-    {
-    case GET:
-        os_printf("We have a GET request.\r\n");
-
-        if (pURL_Frame->pFilename[0] == 0)
-        {
-            index = (char *)os_zalloc(457);
-            if (index == NULL)
-            {
-                os_printf("os_zalloc error!\r\n");
-                goto _temp_exit;
-            }
-
-            // Flash read/write has to be aligned to the 4-bytes boundary
-            ret = spi_flash_read(500 * 4096, (uint32 *)index, 457);
-            if (ret != SPI_FLASH_RESULT_OK)
-            {
-                os_printf("spi_flash_read err:%d\r\n", ret);
-                os_free(index);
-                index = NULL;
-                goto _temp_exit;
-            }
-
-            // index[HTML_FILE_SIZE] = 0;   // put 0 to the end
-            data_send(arg, true, index);
-
-            os_free(index);
-            index = NULL;
-        }
-        break;
-
-    case POST:
-        os_printf("We have a POST request.\r\n");
-
-        // pParseBuffer = (char *)os_strstr(pusrdata, "\r\n\r\n");
-        // os_printf("pParseBuffer%s\r\n",pParseBuffer);
-        // if (pParseBuffer == NULL)
-        //{
-        webconfig_get_wifi_ssid_pwd(pusrdata);
-        os_printf("We have a connect\r\n");
-        data_send(arg, false, NULL);
-        break;
-        //}
-        // Prase the POST data ...
-        break;
-    }
-
-_temp_exit:;
-    if (pURL_Frame != NULL)
-    {
-        os_free(pURL_Frame);
-        pURL_Frame = NULL;
-    }
-}
-
-void ICACHE_FLASH_ATTR
-webserver_recon(void *arg, sint8 err)
-{
-    struct espconn *pesp_conn = arg;
-
-    os_printf("webserver's %d.%d.%d.%d:%d err %d reconnect\n", pesp_conn->proto.tcp->remote_ip[0],
-              pesp_conn->proto.tcp->remote_ip[1], pesp_conn->proto.tcp->remote_ip[2],
-              pesp_conn->proto.tcp->remote_ip[3], pesp_conn->proto.tcp->remote_port, err);
-}
-
-void ICACHE_FLASH_ATTR
-webserver_discon(void *arg, sint8 err)
-{
-    struct espconn *pesp_conn = arg;
-
-    os_printf("webserver's %d.%d.%d.%d:%d disconnect\n", pesp_conn->proto.tcp->remote_ip[0],
-              pesp_conn->proto.tcp->remote_ip[1], pesp_conn->proto.tcp->remote_ip[2],
-              pesp_conn->proto.tcp->remote_ip[3], pesp_conn->proto.tcp->remote_port);
-}
-
-LOCAL void ICACHE_FLASH_ATTR
-webserver_listen(void *arg)
-{
-    struct espconn *pesp_conn = arg;
-
-    espconn_regist_recvcb(pesp_conn, webserver_recv);
-    espconn_regist_reconcb(pesp_conn, webserver_recon);
-    espconn_regist_disconcb(pesp_conn, webserver_discon);
-    // espconn_regist_sentcb(pesp_conn, webserver_sent);
-}
-
-void ICACHE_FLASH_ATTR
-user_webserver_init(uint32_t Local_port)
-{
-    LOCAL struct espconn user_tcp_espconn;
-    LOCAL esp_tcp esptcp;
-    user_tcp_espconn.type = ESPCONN_TCP;
-    user_tcp_espconn.state = ESPCONN_NONE;
-    user_tcp_espconn.proto.tcp = &esptcp;
-    user_tcp_espconn.proto.tcp->local_port = Local_port;
-    espconn_regist_connectcb(&user_tcp_espconn, webserver_listen);
-    //  espconn_regist_reconcb(&webserver_espconn,webserver_recon);
-    espconn_accept(&user_tcp_espconn);
-}
+SpiAttr spiConfig;//配置SPI
+SpiData SpiSend;//配置SPI发送的数据
 
 void WIFI_Init()
 {
@@ -553,19 +185,174 @@ static void ICACHE_FLASH_ATTR mqttDataCb(uint32_t *args, const char* topic, uint
   os_free(dataBuf);
 }
 
+void ICACHE_FLASH_ATTR W5500_SPI_Init(void){
+    //WRITE_PERI_REG(PERIPHS_IO_MUX,0x105);
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDI_U, 2);  //GPIO12(MISO)
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTCK_U, 2);  //GPIO13(MOSI)
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTMS_U, 2);  //GPIO14 CLOCK
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDO_U, 2);  //GPIO15 CS/SS
+
+    spiConfig.mode = SpiMode_Master;
+    spiConfig.speed = SpiSpeed_10MHz;
+    spiConfig.subMode = SpiSubMode_0;
+    spiConfig.bitOrder = SpiBitOrder_MSBFirst;
+    
+    SpiSend.addr=0;
+    SpiSend.addrLen=0;
+    SpiSend.cmd=0;
+    SpiSend.cmdLen=0;
+    SPIInit(SpiNum_HSPI,&spiConfig);//初始化SPI
+}
+
+void Send_data8(uint8 Txdata)
+{
+    system_soft_wdt_feed() ;//喂狗函数
+    SpiData pDat;
+    SpiSend.cmd = Txdata;	   ///<将第一个命令字节设置为传输数据
+    SpiSend.cmdLen = 1;       ///< 1个字节长度
+    SpiSend.addr = NULL;      ///< 空
+    SpiSend.addrLen = 0; 	   ///< 空
+    SpiSend.data = NULL; 	   ///< 空
+    SpiSend.dataLen = 0; 	   ///<空
+    SPIMasterSendData(SpiNum_HSPI, &SpiSend);  //完成一次数据传输的主机函数
+}
+
+static wiz_NetInfo NetConf = {
+  {0x0c,0x29,0xab,0x7c,0x04,0x02},  // mac地址
+  {192,168,1,133},                  // 本地IP地址
+  {255,255,255,0},                  // 子网掩码
+  {192,168,1,1},                    // 网关地址
+  {0,0,0,0},                        // DNS服务器地址
+  NETINFO_STATIC                    // 使用静态IP
+};
+
+void configNet(){
+  wiz_NetInfo conf;
+  // 配置网络地址
+  //ctlnetwork(CN_SET_NETINFO, (void *)&NetConf);
+  // 回读
+  //sctlnetwork(CN_GET_NETINFO, (void *)&conf);
+  if(memcmp(&conf,&NetConf,sizeof(wiz_NetInfo)) == 0){
+    os_printf("net config success...\n");// 配置成功
+  }else{
+    os_printf("net config fail...\n");// 配置失败
+  }
+}
+
+// reg_wizchip_cs_cbfunc(SPI_CS_Select, SPI_CS_Deselect);// 注册片选函数
+
+/**
+  * @brief  TCP客户端事件处理函数
+  */
+int32_t loopback_tcpc(uint8_t sn, uint8_t* buf, uint8_t* destip, uint16_t destport)
+{   
+   int32_t ret; // return value for SOCK_ERRORs
+   uint16_t size = 0, sentsize=0;
+ 
+   // Port number for TCP client (will be increased)
+   uint16_t any_port = 	5000;
+ 
+   // Socket Status Transitions
+   // Check the W5500 Socket n status register (Sn_SR, The 'Sn_SR' controlled by Sn_CR command or Packet send/recv status)
+   switch(getSn_SR(sn))
+   {
+      case SOCK_ESTABLISHED :
+         if(getSn_IR(sn) & Sn_IR_CON)	// Socket n interrupt register mask; TCP CON interrupt = connection with peer is successful
+         {
+#ifdef _LOOPBACK_DEBUG_
+			printf("%d:Connected to - %d.%d.%d.%d : %d\r\n",sn, destip[0], destip[1], destip[2], destip[3], destport);
+#endif
+			setSn_IR(sn, Sn_IR_CON);  // this interrupt should be write the bit cleared to '1'
+         }
+ 
+         //
+         // Data Transaction Parts; Handle the [data receive and send] process
+         //
+		 if((size = getSn_RX_RSR(sn)) > 0) // Sn_RX_RSR: Socket n Received Size Register, Receiving data length
+         {
+			if(size > DATA_BUF_SIZE) size = DATA_BUF_SIZE; // DATA_BUF_SIZE means user defined buffer size (array)
+			ret = recv(sn, buf, size); // Data Receive process (H/W Rx socket buffer -> User's buffer)
+ 
+			if(ret <= 0) return ret; // If the received data length <= 0, receive failed and process end
+			size = (uint16_t) ret;
+			sentsize = 0;
+ 
+			// Data sentsize control
+			while(size != sentsize)
+			{
+				ret = send(sn, buf+sentsize, size-sentsize); // Data send process (User's buffer -> Destination through H/W Tx socket buffer)
+				
+				printf("%s\r\n",buf);
+				
+				if(ret < 0) // Send Error occurred (sent data length < 0)
+				{
+					close(sn); // socket close
+					return ret;
+				}
+				sentsize += ret; // Don't care SOCKERR_BUSY, because it is zero.
+			}
+         }
+		 //
+         break;
+ 
+      case SOCK_CLOSE_WAIT :
+#ifdef _LOOPBACK_DEBUG_
+         //printf("%d:CloseWait\r\n",sn);
+#endif
+         if((ret=disconnect(sn)) != SOCK_OK) return ret;
+#ifdef _LOOPBACK_DEBUG_
+         printf("%d:Socket Closed\r\n", sn);
+#endif
+         break;
+ 
+      case SOCK_INIT :
+#ifdef _LOOPBACK_DEBUG_
+    	 printf("%d:Try to connect to the %d.%d.%d.%d : %d\r\n", sn, destip[0], destip[1], destip[2], destip[3], destport);
+#endif
+    	 if( (ret = connect(sn, destip, destport)) != SOCK_OK) return ret;	//	Try to TCP connect to the TCP server (destination)
+         break;
+ 
+      case SOCK_CLOSED:
+    	  close(sn);
+    	  if((ret=socket(sn, Sn_MR_TCP, any_port++, SF_TCP_NODELAY)) != sn) return ret; // TCP socket open with 'any_port' port number
+#ifdef _LOOPBACK_DEBUG_
+    	 printf("%d:TCP client loopback start\r\n",sn);
+         //printf("%d:Socket opened\r\n",sn);
+#endif
+         break;
+      default:
+			{
+         break;
+			}
+   }
+   return 1;
+}
+
 void ICACHE_FLASH_ATTR
 user_init(void)
 {
-    os_printf("start...\n");
-    // AP初始化
-    WIFI_Init();
-    // TCP初始化
-    user_webserver_init(80);
+    // os_printf("start...\n");
+    // // AP初始化
+    // WIFI_Init();
+    // // TCP初始化
+    // user_webserver_init(80);
 
-    MQTT_InitConnection(&mqttClient, MQTT_HOST, 1883, 0);
-    MQTT_InitClient(&mqttClient, MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS, 60, 0);
-    MQTT_OnConnected(&mqttClient, mqttConnectedCb);
-    MQTT_OnDisconnected(&mqttClient, mqttDisconnectedCb);
-    MQTT_OnPublished(&mqttClient, mqttPublishedCb);
-    MQTT_OnData(&mqttClient, mqttDataCb);
+    // MQTT_InitConnection(&mqttClient, MQTT_HOST, 1883, 0);
+    // MQTT_InitClient(&mqttClient, MQTT_CLIENT_ID, MQTT_USER, MQTT_PASS, 60, 0);
+    // MQTT_OnConnected(&mqttClient, mqttConnectedCb);
+    // MQTT_OnDisconnected(&mqttClient, mqttDisconnectedCb);
+    // MQTT_OnPublished(&mqttClient, mqttPublishedCb);
+    // MQTT_OnData(&mqttClient, mqttDataCb);
+
+    W5500_SPI_Init();
+    configNet();
+
+	while(1)
+	{
+		//TCP客户端回环测试
+		//loopback_tcpc(SOCK_TCPS, gDATABUF, dest_ip, dest_port);
+ 
+		//delay_ms(20);
+	}
+
 }

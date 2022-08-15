@@ -3,7 +3,9 @@
         {
             "name": "Win32",
             "includePath": [
-                "${workspaceFolder}/**"
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/W5500",
+                "D:/VM/Share/ESP8266_NONOS_SDK-master/driver_lib/include/driver"
             ],
             "defines": [
                 "_DEBUG",

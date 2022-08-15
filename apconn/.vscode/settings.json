@@ -3,6 +3,11 @@
         "cjson.h": "c",
         "espconn.h": "c",
         "user_webserver.h": "c",
-        "spi_flash.h": "c"
+        "spi_flash.h": "c",
+        "wizchip_conf.h": "c",
+        "spi_interface.h": "c",
+        "debug.h": "c",
+        "socket.h": "c",
+        "spi.h": "c"
     }
 }
